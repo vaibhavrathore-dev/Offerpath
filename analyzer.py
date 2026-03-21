@@ -1,32 +1,68 @@
-import spacy
-from sentence_transformers import SentenceTransformer, util
+import os
+import google.generativeai as genai
+from dotenv import load_dotenv
+import json
+import re
 
-nlp = spacy.load("en_core_web_sm")
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+load_dotenv()
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 def get_match_score(resume_text, job_description):
-    resume_vector = embedding_model.encode(resume_text, convert_to_tensor=True)
-    jd_vector = embedding_model.encode(job_description, convert_to_tensor=True)
-    similarity = util.cos_sim(resume_vector, jd_vector)
-    score = similarity.item() * 100
-    return round(score, 1)
+    prompt = f"""
+    Compare this resume against this job description and give a match score.
+    
+    Resume: {resume_text[:2000]}
+    Job Description: {job_description[:1000]}
+    
+    Reply with ONLY a single number between 0 and 100 representing the match percentage.
+    No explanation, no text, just the number.
+    """
+    response = model.generate_content(prompt)
+    try:
+        score = float(re.findall(r'\d+\.?\d*', response.text)[0])
+        return round(min(max(score, 0), 100), 1)
+    except:
+        return 65.0
 
 def extract_keywords(text):
-    doc = nlp(text.lower())
+    # Simple keyword extraction without spaCy
+    stop_words = {'the','a','an','and','or','but','in','on','at','to','for','of','with','by','from','is','are','was','were','be','been','have','has','had','do','does','did','will','would','could','should','may','might','this','that','these','those','i','we','you','he','she','it','they','our','your','his','her','its','their'}
+    words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
     keywords = set()
-    for token in doc:
-        if not token.is_stop and token.is_alpha and len(token.text) > 2:
-            keywords.add(token.lemma_)  # lemma = root form (running -> run)
+    for word in words:
+        if word not in stop_words:
+            keywords.add(word)
     return keywords
 
 def get_missing_skills(resume_text, job_description):
-    resume_keywords = extract_keywords(resume_text)
-    jd_keywords = extract_keywords(job_description)
-    missing = jd_keywords - resume_keywords  # set subtraction
-    return sorted(list(missing))[:20]
+    prompt = f"""
+    Look at this resume and job description.
+    List the technical skills and keywords that appear in the job description but are MISSING from the resume.
+    
+    Resume: {resume_text[:2000]}
+    Job Description: {job_description[:1000]}
+    
+    Reply with ONLY a comma-separated list of missing skills/keywords.
+    Maximum 15 items. No explanation, no numbering, just the comma-separated list.
+    Example: docker, kubernetes, react, typescript, aws
+    """
+    response = model.generate_content(prompt)
+    skills = [s.strip().lower() for s in response.text.split(',') if s.strip()]
+    return skills[:15]
 
 def get_matched_skills(resume_text, job_description):
-    resume_keywords = extract_keywords(resume_text)
-    jd_keywords = extract_keywords(job_description)
-    matched = resume_keywords & jd_keywords  # set intersection
-    return sorted(list(matched))[:20]
+    prompt = f"""
+    Look at this resume and job description.
+    List the technical skills and keywords that appear in BOTH the resume AND the job description.
+    
+    Resume: {resume_text[:2000]}
+    Job Description: {job_description[:1000]}
+    
+    Reply with ONLY a comma-separated list of matched skills/keywords.
+    Maximum 15 items. No explanation, no numbering, just the comma-separated list.
+    Example: python, django, sql, git, rest api
+    """
+    response = model.generate_content(prompt)
+    skills = [s.strip().lower() for s in response.text.split(',') if s.strip()]
+    return skills[:15]
