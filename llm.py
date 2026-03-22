@@ -39,7 +39,7 @@ def get_resume_score_breakdown(resume_text):
     Resume: {resume_text[:2000]}
     """
     response = client.chat.completions.create(
-        model="meta-llama/llama-3.3-70b-instruct:free",
+        model="google/gemma-3-27b-it:free",
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
