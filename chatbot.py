@@ -1,10 +1,11 @@
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+client = genai.Client(api_key=os.environ["AIzaSyCmuoXVnxbQ2Dt26bLHF5SgxAMtcL6eFhg"])
 
 def get_chatbot_response(user_message, chat_history, resume_text, job_description):
     """
@@ -20,15 +21,21 @@ def get_chatbot_response(user_message, chat_history, resume_text, job_descriptio
 
     gemini_history = []
     for message in chat_history:
-        gemini_history.append({
-            "role": message["role"],
-            "parts": [message["content"]]
-        })
+        role = "user" if message["role"] == "user" else "model"
+        gemini_history.append(
+            types.Content(role=role, parts=[types.Part(text=message["content"])])
+        )
 
-    model = genai.GenerativeModel(
-        "gemini-1.5-flash",
-        system_instruction=system_context
+    # Add current user message
+    gemini_history.append(
+        types.Content(role="user", parts=[types.Part(text=user_message)])
     )
-    chat = model.start_chat(history=gemini_history)
-    response = chat.send_message(user_message)
+
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        config=types.GenerateContentConfig(system_instruction=system_context),
+        contents=gemini_history
+    )
+
     return response.text
+```
