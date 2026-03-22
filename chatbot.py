@@ -38,4 +38,4 @@ def get_chatbot_response(user_message, chat_history, resume_text, job_descriptio
     )
 
     return response.text
-```
+
