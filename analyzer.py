@@ -10,6 +10,27 @@ client = OpenAI(
     api_key=os.environ["OPENROUTER_API_KEY"]
 )
 
+MODELS = [
+    "google/gemma-3-27b-it:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "mistralai/mistral-small-3.1-24b-instruct:free",
+    "meta-llama/llama-3.2-3b-instruct:free"
+]
+
+def call_ai(prompt):
+    for model in MODELS:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            if "429" in str(e):
+                continue
+            raise e
+    raise Exception("All models are rate limited. Please try again later.")
+
 def get_match_score(resume_text, job_description):
     prompt = f"""
     Compare this resume against this job description and give a match score.
@@ -20,12 +41,9 @@ def get_match_score(resume_text, job_description):
     Reply with ONLY a single number between 0 and 100 representing the match percentage.
     No explanation, no text, just the number.
     """
-    response = client.chat.completions.create(
-        model="meta-llama/llama-3.3-70b-instruct:free",
-        messages=[{"role": "user", "content": prompt}]
-    )
+    result = call_ai(prompt)
     try:
-        score = float(re.findall(r'\d+\.?\d*', response.choices[0].message.content)[0])
+        score = float(re.findall(r'\d+\.?\d*', result)[0])
         return round(min(max(score, 0), 100), 1)
     except:
         return 65.0
@@ -51,11 +69,8 @@ def get_missing_skills(resume_text, job_description):
     Maximum 15 items. No explanation, no numbering, just the comma-separated list.
     Example: docker, kubernetes, react, typescript, aws
     """
-    response = client.chat.completions.create(
-        model="meta-llama/llama-3.3-70b-instruct:free",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    skills = [s.strip().lower() for s in response.choices[0].message.content.split(',') if s.strip()]
+    result = call_ai(prompt)
+    skills = [s.strip().lower() for s in result.split(',') if s.strip()]
     return skills[:15]
 
 def get_matched_skills(resume_text, job_description):
@@ -70,9 +85,6 @@ def get_matched_skills(resume_text, job_description):
     Maximum 15 items. No explanation, no numbering, just the comma-separated list.
     Example: python, django, sql, git, rest api
     """
-    response = client.chat.completions.create(
-        model="google/gemma-3-27b-it:free",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    skills = [s.strip().lower() for s in response.choices[0].message.content.split(',') if s.strip()]
+    result = call_ai(prompt)
+    skills = [s.strip().lower() for s in result.split(',') if s.strip()]
     return skills[:15]
