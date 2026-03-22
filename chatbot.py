@@ -9,11 +9,28 @@ client = OpenAI(
     api_key=os.environ["OPENROUTER_API_KEY"]
 )
 
+MODELS = [
+    "google/gemma-3-27b-it:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "mistralai/mistral-small-3.1-24b-instruct:free",
+    "meta-llama/llama-3.2-3b-instruct:free"
+]
+
+def call_ai(messages):
+    for model in MODELS:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            if "429" in str(e):
+                continue
+            raise e
+    raise Exception("All models are rate limited. Please try again later.")
+
 def get_chatbot_response(user_message, chat_history, resume_text, job_description):
-    """
-    chat_history is a list of dicts:
-    [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
-    """
     system_context = f"""
     You are OfferPath AI, a helpful resume coach and career advisor.
     The user's resume: {resume_text[:1500]}
@@ -31,9 +48,4 @@ def get_chatbot_response(user_message, chat_history, resume_text, job_descriptio
 
     messages.append({"role": "user", "content": user_message})
 
-    response = client.chat.completions.create(
-        model="google/gemma-3-27b-it:free",
-        messages=messages
-    )
-
-    return response.choices[0].message.content
+    return call_ai(messages)
