@@ -1,10 +1,13 @@
 import os
-from google import genai
+from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.environ["OPENROUTER_API_KEY"]
+)
 
 def get_improvement_suggestions(resume_text, job_description, missing_skills):
     prompt = f"""
@@ -17,11 +20,11 @@ def get_improvement_suggestions(resume_text, job_description, missing_skills):
     Give exactly 5 specific, actionable bullet points to improve this resume
     for this specific job. Be direct. No generic advice.
     """
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt
+    response = client.chat.completions.create(
+        model="meta-llama/llama-3.3-70b-instruct:free",
+        messages=[{"role": "user", "content": prompt}]
     )
-    return response.text
+    return response.choices[0].message.content
 
 def get_resume_score_breakdown(resume_text):
     prompt = f"""
@@ -35,8 +38,8 @@ def get_resume_score_breakdown(resume_text):
     
     Resume: {resume_text[:2000]}
     """
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt
+    response = client.chat.completions.create(
+        model="meta-llama/llama-3.3-70b-instruct:free",
+        messages=[{"role": "user", "content": prompt}]
     )
-    return response.text
+    return response.choices[0].message.content
