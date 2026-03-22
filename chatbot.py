@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-client = genai.Client(api_key=os.environ["AIzaSyCmuoXVnxbQ2Dt26bLHF5SgxAMtcL6eFhg"])
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 def get_chatbot_response(user_message, chat_history, resume_text, job_description):
     """
