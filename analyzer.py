@@ -71,7 +71,7 @@ def get_matched_skills(resume_text, job_description):
     Example: python, django, sql, git, rest api
     """
     response = client.chat.completions.create(
-        model="meta-llama/llama-3.3-70b-instruct:free",
+        model="google/gemma-3-27b-it:free",
         messages=[{"role": "user", "content": prompt}]
     )
     skills = [s.strip().lower() for s in response.choices[0].message.content.split(',') if s.strip()]
