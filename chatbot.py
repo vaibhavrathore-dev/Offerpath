@@ -1,11 +1,13 @@
 import os
-from google import genai
-from google.genai import types
+from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.environ["OPENROUTER_API_KEY"]
+)
 
 def get_chatbot_response(user_message, chat_history, resume_text, job_description):
     """
@@ -19,23 +21,19 @@ def get_chatbot_response(user_message, chat_history, resume_text, job_descriptio
     Answer based on their actual resume. Keep responses to 3-5 sentences max.
     """
 
-    gemini_history = []
+    messages = [{"role": "system", "content": system_context}]
+
     for message in chat_history:
-        role = "user" if message["role"] == "user" else "model"
-        gemini_history.append(
-            types.Content(role=role, parts=[types.Part(text=message["content"])])
-        )
+        messages.append({
+            "role": message["role"],
+            "content": message["content"]
+        })
 
-    # Add current user message
-    gemini_history.append(
-        types.Content(role="user", parts=[types.Part(text=user_message)])
+    messages.append({"role": "user", "content": user_message})
+
+    response = client.chat.completions.create(
+        model="meta-llama/llama-3.3-70b-instruct:free",
+        messages=messages
     )
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        config=types.GenerateContentConfig(system_instruction=system_context),
-        contents=gemini_history
-    )
-
-    return response.text
-
+    return response.choices[0].message.content
