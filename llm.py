@@ -1,12 +1,10 @@
 import os
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 
 load_dotenv()
 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-
-model = genai.GenerativeModel("gemini-1.5-flash")
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 def get_improvement_suggestions(resume_text, job_description, missing_skills):
     prompt = f"""
@@ -19,7 +17,10 @@ def get_improvement_suggestions(resume_text, job_description, missing_skills):
     Give exactly 5 specific, actionable bullet points to improve this resume
     for this specific job. Be direct. No generic advice.
     """
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt
+    )
     return response.text
 
 def get_resume_score_breakdown(resume_text):
@@ -34,5 +35,8 @@ def get_resume_score_breakdown(resume_text):
     
     Resume: {resume_text[:2000]}
     """
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt
+    )
     return response.text
