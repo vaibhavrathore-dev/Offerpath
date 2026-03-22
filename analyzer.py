@@ -1,12 +1,14 @@
 import os
-from google import genai
-from google.genai import types
+from openai import OpenAI
 from dotenv import load_dotenv
 import re
 
 load_dotenv()
 
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.environ["OPENROUTER_API_KEY"]
+)
 
 def get_match_score(resume_text, job_description):
     prompt = f"""
@@ -18,12 +20,12 @@ def get_match_score(resume_text, job_description):
     Reply with ONLY a single number between 0 and 100 representing the match percentage.
     No explanation, no text, just the number.
     """
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt
+    response = client.chat.completions.create(
+        model="meta-llama/llama-3.3-70b-instruct:free",
+        messages=[{"role": "user", "content": prompt}]
     )
     try:
-        score = float(re.findall(r'\d+\.?\d*', response.text)[0])
+        score = float(re.findall(r'\d+\.?\d*', response.choices[0].message.content)[0])
         return round(min(max(score, 0), 100), 1)
     except:
         return 65.0
@@ -49,11 +51,11 @@ def get_missing_skills(resume_text, job_description):
     Maximum 15 items. No explanation, no numbering, just the comma-separated list.
     Example: docker, kubernetes, react, typescript, aws
     """
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt
+    response = client.chat.completions.create(
+        model="meta-llama/llama-3.3-70b-instruct:free",
+        messages=[{"role": "user", "content": prompt}]
     )
-    skills = [s.strip().lower() for s in response.text.split(',') if s.strip()]
+    skills = [s.strip().lower() for s in response.choices[0].message.content.split(',') if s.strip()]
     return skills[:15]
 
 def get_matched_skills(resume_text, job_description):
@@ -68,9 +70,9 @@ def get_matched_skills(resume_text, job_description):
     Maximum 15 items. No explanation, no numbering, just the comma-separated list.
     Example: python, django, sql, git, rest api
     """
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt
+    response = client.chat.completions.create(
+        model="meta-llama/llama-3.3-70b-instruct:free",
+        messages=[{"role": "user", "content": prompt}]
     )
-    skills = [s.strip().lower() for s in response.text.split(',') if s.strip()]
+    skills = [s.strip().lower() for s in response.choices[0].message.content.split(',') if s.strip()]
     return skills[:15]
