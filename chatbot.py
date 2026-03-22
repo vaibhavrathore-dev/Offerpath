@@ -8,12 +8,17 @@ client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=os.environ["OPENROUTER_API_KEY"]
 )
-
 MODELS = [
     "google/gemma-3-27b-it:free",
+    "google/gemma-3-12b-it:free",
+    "google/gemma-3-4b-it:free",
+    "google/gemma-3n-e4b-it:free",
+    "google/gemma-3n-e2b-it:free",
     "meta-llama/llama-3.3-70b-instruct:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
     "mistralai/mistral-small-3.1-24b-instruct:free",
-    "meta-llama/llama-3.2-3b-instruct:free"
+    "nousresearch/hermes-3-405b-instruct:free",
+    "qwen/qwen3-4b:free",
 ]
 
 def call_ai(messages):
