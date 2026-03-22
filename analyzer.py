@@ -1,12 +1,12 @@
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
-import json
 import re
 
 load_dotenv()
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel("gemini-1.5-flash")
+
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 def get_match_score(resume_text, job_description):
     prompt = f"""
@@ -18,7 +18,10 @@ def get_match_score(resume_text, job_description):
     Reply with ONLY a single number between 0 and 100 representing the match percentage.
     No explanation, no text, just the number.
     """
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt
+    )
     try:
         score = float(re.findall(r'\d+\.?\d*', response.text)[0])
         return round(min(max(score, 0), 100), 1)
@@ -26,7 +29,6 @@ def get_match_score(resume_text, job_description):
         return 65.0
 
 def extract_keywords(text):
-    # Simple keyword extraction without spaCy
     stop_words = {'the','a','an','and','or','but','in','on','at','to','for','of','with','by','from','is','are','was','were','be','been','have','has','had','do','does','did','will','would','could','should','may','might','this','that','these','those','i','we','you','he','she','it','they','our','your','his','her','its','their'}
     words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
     keywords = set()
@@ -47,7 +49,10 @@ def get_missing_skills(resume_text, job_description):
     Maximum 15 items. No explanation, no numbering, just the comma-separated list.
     Example: docker, kubernetes, react, typescript, aws
     """
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt
+    )
     skills = [s.strip().lower() for s in response.text.split(',') if s.strip()]
     return skills[:15]
 
@@ -63,6 +68,9 @@ def get_matched_skills(resume_text, job_description):
     Maximum 15 items. No explanation, no numbering, just the comma-separated list.
     Example: python, django, sql, git, rest api
     """
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt
+    )
     skills = [s.strip().lower() for s in response.text.split(',') if s.strip()]
     return skills[:15]
