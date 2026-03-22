@@ -32,7 +32,7 @@ def get_chatbot_response(user_message, chat_history, resume_text, job_descriptio
     messages.append({"role": "user", "content": user_message})
 
     response = client.chat.completions.create(
-        model="meta-llama/llama-3.3-70b-instruct:free",
+        model="google/gemma-3-27b-it:free",
         messages=messages
     )
 
