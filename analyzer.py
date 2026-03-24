@@ -1,39 +1,57 @@
 import os
-from openai import OpenAI
-from dotenv import load_dotenv
 import re
+from groq import Groq
+import google.generativeai as genai
+from dotenv import load_dotenv
 
 load_dotenv()
 
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.environ["OPENROUTER_API_KEY"]
-)
-MODELS = [
-    "google/gemma-3-27b-it:free",
-    "google/gemma-3-12b-it:free",
-    "google/gemma-3-4b-it:free",
-    "google/gemma-3n-e4b-it:free",
-    "google/gemma-3n-e2b-it:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "meta-llama/llama-3.2-3b-instruct:free",
-    "mistralai/mistral-small-3.1-24b-instruct:free",
-    "qwen/qwen3-4b:free",
+# ─────────────────────────────────────────────
+# CLIENT SETUP
+# ─────────────────────────────────────────────
+groq_client = Groq(api_key=os.environ["GROQ_API_KEY"])
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+
+# ─────────────────────────────────────────────
+# GROQ MODELS (fastest first)
+# ─────────────────────────────────────────────
+GROQ_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "gemma2-9b-it",
 ]
-def call_ai(prompt):
-    for model in MODELS:
+
+# ─────────────────────────────────────────────
+# CORE AI CALLER — Groq first, Gemini fallback
+# ─────────────────────────────────────────────
+def call_ai(prompt: str) -> str:
+
+    # Try Groq first (fastest)
+    for model in GROQ_MODELS:
         try:
-            response = client.chat.completions.create(
+            response = groq_client.chat.completions.create(
                 model=model,
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1024
             )
             return response.choices[0].message.content
         except Exception as e:
-            if "429" in str(e):
+            if "429" in str(e) or "rate" in str(e).lower():
                 continue
             raise e
-    raise Exception("All models are rate limited. Please try again later.")
 
+    # Groq failed — fallback to Gemini
+    try:
+        response = gemini_model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        raise Exception(f"All AI providers failed: {str(e)}")
+
+
+# ─────────────────────────────────────────────
+# FUNCTIONS — exactly same as before
+# ─────────────────────────────────────────────
 def get_match_score(resume_text, job_description):
     prompt = f"""
     Compare this resume against this job description and give a match score.
@@ -51,14 +69,22 @@ def get_match_score(resume_text, job_description):
     except:
         return 65.0
 
+
 def extract_keywords(text):
-    stop_words = {'the','a','an','and','or','but','in','on','at','to','for','of','with','by','from','is','are','was','were','be','been','have','has','had','do','does','did','will','would','could','should','may','might','this','that','these','those','i','we','you','he','she','it','they','our','your','his','her','its','their'}
+    stop_words = {
+        'the','a','an','and','or','but','in','on','at','to','for','of','with',
+        'by','from','is','are','was','were','be','been','have','has','had','do',
+        'does','did','will','would','could','should','may','might','this','that',
+        'these','those','i','we','you','he','she','it','they','our','your','his',
+        'her','its','their'
+    }
     words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
     keywords = set()
     for word in words:
         if word not in stop_words:
             keywords.add(word)
     return keywords
+
 
 def get_missing_skills(resume_text, job_description):
     prompt = f"""
@@ -75,6 +101,7 @@ def get_missing_skills(resume_text, job_description):
     result = call_ai(prompt)
     skills = [s.strip().lower() for s in result.split(',') if s.strip()]
     return skills[:15]
+
 
 def get_matched_skills(resume_text, job_description):
     prompt = f"""
