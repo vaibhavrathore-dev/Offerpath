@@ -27,12 +27,16 @@ app = FastAPI(
 # In production: replace * with your actual frontend domain
 app.add_middleware(
     CORSMiddleware,
-   allow_origins=["https://offerpath.co.in"],
+    allow_origins=[
+        "https://offerpath.co.in",
+        "https://www.offerpath.co.in",
+        "https://offerpath-4e52f.web.app",
+        "https://offerpath-4e52f.firebaseapp.com",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # ─────────────────────────────────────────────
 # MODELS (request/response shapes)
 # ─────────────────────────────────────────────
