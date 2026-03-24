@@ -1,46 +1,76 @@
 import os
-from openai import OpenAI
+from groq import Groq
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.environ["OPENROUTER_API_KEY"]
-)
-MODELS = [
-    "google/gemma-3-27b-it:free",
-    "google/gemma-3-12b-it:free",
-    "google/gemma-3-4b-it:free",
-    "google/gemma-3n-e4b-it:free",
-    "google/gemma-3n-e2b-it:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "meta-llama/llama-3.2-3b-instruct:free",
-    "mistralai/mistral-small-3.1-24b-instruct:free",
-    "qwen/qwen3-4b:free",
+# ─────────────────────────────────────────────
+# CLIENT SETUP
+# ─────────────────────────────────────────────
+groq_client = Groq(api_key=os.environ["GROQ_API_KEY"])
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+
+# ─────────────────────────────────────────────
+# GROQ MODELS (fastest first)
+# ─────────────────────────────────────────────
+GROQ_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "gemma2-9b-it",
 ]
-def call_ai(messages):
-    for model in MODELS:
+
+# ─────────────────────────────────────────────
+# CORE AI CALLER — Groq first, Gemini fallback
+# ─────────────────────────────────────────────
+def call_ai(messages: list) -> str:
+
+    # Try Groq first (fastest)
+    for model in GROQ_MODELS:
         try:
-            response = client.chat.completions.create(
+            response = groq_client.chat.completions.create(
                 model=model,
-                messages=messages
+                messages=messages,
+                max_tokens=1024
             )
             return response.choices[0].message.content
         except Exception as e:
-            if "429" in str(e):
-                continue
+            if "429" in str(e) or "rate" in str(e).lower():
+                continue  # try next Groq model
             raise e
-    raise Exception("All models are rate limited. Please try again later.")
 
+    # Groq failed — fallback to Gemini
+    # Gemini doesn't support system role so we merge it into first user message
+    try:
+        system_msg = next((m["content"] for m in messages if m["role"] == "system"), "")
+        conversation = []
+        for m in messages:
+            if m["role"] == "system":
+                continue
+            elif m["role"] == "user":
+                content = f"{system_msg}\n\n{m['content']}" if not conversation else m["content"]
+                conversation.append({"role": "user", "parts": [content]})
+            elif m["role"] == "assistant":
+                conversation.append({"role": "model", "parts": [m["content"]]})
+
+        chat = gemini_model.start_chat(history=conversation[:-1])
+        response = chat.send_message(conversation[-1]["parts"][0])
+        return response.text
+    except Exception as e:
+        raise Exception(f"All AI providers failed: {str(e)}")
+
+
+# ─────────────────────────────────────────────
+# SAGE CHATBOT — same as before, no changes
+# ─────────────────────────────────────────────
 def get_chatbot_response(user_message, chat_history, resume_text, job_description):
     system_context = f"""
-    You are OfferPath AI, a helpful resume coach and career advisor.
+    You are Sage, OfferPath's personal AI career coach.
     The user's resume: {resume_text[:1500]}
     The job they are applying for: {job_description[:800]}
     Answer based on their actual resume. Keep responses to 3-5 sentences max.
     """
-
     messages = [{"role": "system", "content": system_context}]
 
     for message in chat_history:
