@@ -12,7 +12,8 @@ from parser import extract_text_from_pdf
 from analyzer import get_match_score, get_missing_skills, get_matched_skills
 from llm import get_improvement_suggestions, get_resume_score_breakdown
 from chatbot import get_chatbot_response
-
+from routes.photo_analyzer import router as photo_router
+app.include_router(photo_router, prefix="/api")
 # ─────────────────────────────────────────────
 # APP SETUP
 # ─────────────────────────────────────────────
