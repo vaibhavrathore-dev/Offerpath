@@ -12,7 +12,7 @@ from parser import extract_text_from_pdf
 from analyzer import get_match_score, get_missing_skills, get_matched_skills
 from llm import get_improvement_suggestions, get_resume_score_breakdown
 from chatbot import get_chatbot_response
-app.include_router(photo_router, prefix="/api")
+from photo_analyzer import router as photo_router  # ← photo analyzer
 
 # ─────────────────────────────────────────────
 # APP SETUP
@@ -23,9 +23,9 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Allow frontend HTML files to call this API
-# During development: allow all origins
-# In production: replace * with your actual frontend domain
+# ← router registered AFTER app is created
+app.include_router(photo_router, prefix="/api")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -38,12 +38,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 # ─────────────────────────────────────────────
-# MODELS (request/response shapes)
+# MODELS
 # ─────────────────────────────────────────────
 
 class ChatMessage(BaseModel):
-    role: str        # "user" or "assistant"
+    role: str
     content: str
 
 class ChatRequest(BaseModel):
@@ -67,47 +68,33 @@ class ChatResponse(BaseModel):
 # ROUTES
 # ─────────────────────────────────────────────
 
-# Health check — to verify API is running
 @app.get("/")
 def root():
     return {
         "status": "Offerpath API is running",
         "version": "1.0.0",
-        "endpoints": ["/analyze", "/chat", "/health"]
+        "endpoints": ["/analyze", "/chat", "/health", "/api/analyze-photo"]
     }
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-
 # ─────────────────────────────────────────────
-# /analyze — Core resume analysis endpoint
-# Called by analyzer.html when user clicks "Analyze my resume"
+# /analyze
 # ─────────────────────────────────────────────
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_resume(
-    resume: UploadFile = File(...),          # PDF file from frontend
-    job_description: str = Form(...)         # Job description text from frontend
+    resume: UploadFile = File(...),
+    job_description: str = Form(...)
 ):
-    # Validate file type
     if not resume.filename.endswith(".pdf"):
-        raise HTTPException(
-            status_code=400,
-            detail="Only PDF files are supported."
-        )
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
-    # Validate job description length
     if len(job_description.strip()) < 50:
-        raise HTTPException(
-            status_code=400,
-            detail="Job description is too short. Please paste the full job description."
-        )
+        raise HTTPException(status_code=400, detail="Job description is too short. Please paste the full job description.")
 
     try:
-        # Step 1 — Extract text from PDF
-        # We need to wrap the file bytes in an object that has a .read() method
-        # because our parser.py was written for Streamlit's file uploader
         file_bytes = await resume.read()
 
         class FileWrapper:
@@ -117,27 +104,13 @@ async def analyze_resume(
         resume_text = extract_text_from_pdf(FileWrapper())
 
         if not resume_text or len(resume_text.strip()) < 100:
-            raise HTTPException(
-                status_code=400,
-                detail="Could not extract text from the PDF. Make sure it's not a scanned image."
-            )
+            raise HTTPException(status_code=400, detail="Could not extract text from the PDF. Make sure it's not a scanned image.")
 
-        # Step 2 — Calculate match score
-        match_score = get_match_score(resume_text, job_description)
-
-        # Step 3 — Extract matched and missing skills
-        matched_skills = get_matched_skills(resume_text, job_description)
-        missing_skills = get_missing_skills(resume_text, job_description)
-
-        # Step 4 — Generate AI suggestions via Gemini
-        suggestions = get_improvement_suggestions(
-            resume_text,
-            job_description,
-            missing_skills
-        )
-
-        # Step 5 — Generate section breakdown via Gemini
-        breakdown = get_resume_score_breakdown(resume_text)
+        match_score     = get_match_score(resume_text, job_description)
+        matched_skills  = get_matched_skills(resume_text, job_description)
+        missing_skills  = get_missing_skills(resume_text, job_description)
+        suggestions     = get_improvement_suggestions(resume_text, job_description, missing_skills)
+        breakdown       = get_resume_score_breakdown(resume_text)
 
         return AnalyzeResponse(
             match_score=match_score,
@@ -145,63 +118,42 @@ async def analyze_resume(
             missing_skills=missing_skills,
             suggestions=suggestions,
             breakdown=breakdown,
-            resume_text=resume_text   # returned so frontend can pass it to chatbot
+            resume_text=resume_text
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Analysis failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
 # ─────────────────────────────────────────────
-# /chat — Sage chatbot endpoint
-# Called by chatbot.html every time user sends a message
+# /chat
 # ─────────────────────────────────────────────
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-
     if not request.message.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Message cannot be empty."
-        )
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
     if not request.resume_text.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="No resume text found. Please analyze your resume first."
-        )
+        raise HTTPException(status_code=400, detail="No resume text found. Please analyze your resume first.")
 
     try:
-        # Convert chat history to the format chatbot.py expects
-        chat_history = [
-            {"role": msg.role, "content": msg.content}
-            for msg in request.chat_history
-        ]
-
-        # Get Sage's response from Gemini
+        chat_history = [{"role": msg.role, "content": msg.content} for msg in request.chat_history]
         reply = get_chatbot_response(
             user_message=request.message,
             chat_history=chat_history,
             resume_text=request.resume_text,
             job_description=request.job_description
         )
-
         return ChatResponse(reply=reply)
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Sage failed to respond: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Sage failed to respond: {str(e)}")
 
 
 # ─────────────────────────────────────────────
-# RUN SERVER
+# RUN
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
     uvicorn.run(
