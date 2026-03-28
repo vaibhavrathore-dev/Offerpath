@@ -10,3 +10,5 @@ pillow
 numpy
 opencv-python-headless
 razorpay
+firebase-admin
+ 
