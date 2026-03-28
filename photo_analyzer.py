@@ -1,7 +1,4 @@
 import os
-import cv2
-import numpy as np
-import base64
 import json
 from io import BytesIO
 from PIL import Image
@@ -9,9 +6,19 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from groq import Groq
 import google.generativeai as genai
 
+# ─────────────────────────────────────────────
+# cv2 is optional — no prebuilt wheel for Python 3.14 yet
+# If it's missing, sharpness & lighting fall back to neutral 70
+# ─────────────────────────────────────────────
+try:
+    import cv2
+    import numpy as np
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+
 router = APIRouter()
 
-# ── Reuse same clients (or import your call_ai from ai_core.py)
 groq_client = Groq(api_key=os.environ["GROQ_API_KEY"])
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 gemini_vision_model = genai.GenerativeModel("gemini-1.5-flash")
@@ -19,16 +26,21 @@ gemini_vision_model = genai.GenerativeModel("gemini-1.5-flash")
 # ─────────────────────────────────────────────
 # SIGNAL 1 — Sharpness (Laplacian variance)
 # ─────────────────────────────────────────────
-def compute_sharpness(img_cv) -> int:
+def compute_sharpness(pil_image: Image.Image) -> int:
+    if not CV2_AVAILABLE:
+        return 70  # neutral fallback when cv2 not installed
+    img_cv = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     variance = cv2.Laplacian(gray, cv2.CV_64F).var()
-    # < 100 = blurry, > 500 = sharp
     return max(0, min(100, int(variance / 5)))
 
 # ─────────────────────────────────────────────
 # SIGNAL 2 — Lighting (HSV brightness analysis)
 # ─────────────────────────────────────────────
-def compute_lighting(img_cv) -> int:
+def compute_lighting(pil_image: Image.Image) -> int:
+    if not CV2_AVAILABLE:
+        return 70  # neutral fallback when cv2 not installed
+    img_cv = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
     hsv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2HSV)
     brightness = hsv[:, :, 2].mean()
     if 110 <= brightness <= 190:
@@ -40,8 +52,6 @@ def compute_lighting(img_cv) -> int:
 
 # ─────────────────────────────────────────────
 # SIGNAL 3 — Gemini Vision (semantic signals)
-# Groq doesn't support vision, so Gemini is
-# primary here with a structured JSON prompt
 # ─────────────────────────────────────────────
 def compute_gemini_signals(pil_image: Image.Image) -> dict:
     prompt = """You are a professional LinkedIn profile photo evaluator for Indian college students applying to tech and non-tech jobs.
@@ -66,13 +76,10 @@ Be specific in tips. Address the actual problems you see in this specific photo.
 
     try:
         response = gemini_vision_model.generate_content([prompt, pil_image])
-        raw = response.text.strip()
-        # Strip markdown fences if Gemini wraps it anyway
-        raw = raw.replace("```json", "").replace("```", "").strip()
+        raw = response.text.strip().replace("```json", "").replace("```", "").strip()
         return json.loads(raw)
     except json.JSONDecodeError:
-        # Gemini returned non-JSON — ask Groq to extract it as text fallback
-        raise Exception("Gemini returned invalid JSON")
+        raise Exception("Gemini returned invalid JSON. Please try again.")
     except Exception as e:
         raise Exception(f"Gemini vision failed: {str(e)}")
 
@@ -81,31 +88,26 @@ Be specific in tips. Address the actual problems you see in this specific photo.
 # ─────────────────────────────────────────────
 @router.post("/analyze-photo")
 async def analyze_photo(file: UploadFile = File(...)):
-    # ── Validate file type
+
     if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
         raise HTTPException(status_code=400, detail="Only JPG, PNG, or WebP images are allowed.")
 
     contents = await file.read()
 
-    # ── Validate file size (max 5MB)
     if len(contents) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Image must be under 5MB.")
 
-    # ── Load and resize image
     try:
         pil_image = Image.open(BytesIO(contents)).convert("RGB")
-        pil_image.thumbnail((1024, 1024))  # cap size for faster processing
+        pil_image.thumbnail((1024, 1024))
     except Exception:
         raise HTTPException(status_code=400, detail="Could not read image. Please upload a valid photo.")
 
-    # ── Convert to OpenCV for math-based signals
-    img_cv = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+    # OpenCV signals — use PIL image directly, cv2 conversion happens inside
+    sharpness = compute_sharpness(pil_image)
+    lighting  = compute_lighting(pil_image)
 
-    # ── Run OpenCV signals (fast, local)
-    sharpness = compute_sharpness(img_cv)
-    lighting  = compute_lighting(img_cv)
-
-    # ── Run Gemini Vision (semantic signals)
+    # Gemini semantic signals
     try:
         gemini_data = compute_gemini_signals(pil_image)
     except Exception as e:
@@ -115,8 +117,6 @@ async def analyze_photo(file: UploadFile = File(...)):
     attire        = gemini_data.get("attire", 0)
     background    = gemini_data.get("background", 0)
 
-    # ── Weighted final score
-    # Face position is the most important for a profile photo
     final_score = int(
         sharpness     * 0.15 +
         lighting      * 0.15 +
@@ -126,7 +126,7 @@ async def analyze_photo(file: UploadFile = File(...)):
     )
 
     return {
-        "final_score": final_score,
+        "final_score":        final_score,
         "breakdown": {
             "sharpness":      sharpness,
             "lighting":       lighting,
@@ -134,7 +134,7 @@ async def analyze_photo(file: UploadFile = File(...)):
             "attire":         attire,
             "background":     background,
         },
-        "grade":               gemini_data.get("grade", "—"),
-        "overall_impression":  gemini_data.get("overall_impression", ""),
-        "tips":                gemini_data.get("tips", []),
+        "grade":              gemini_data.get("grade", "—"),
+        "overall_impression": gemini_data.get("overall_impression", ""),
+        "tips":               gemini_data.get("tips", []),
     }
