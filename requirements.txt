@@ -9,3 +9,4 @@ google-generativeai
 pillow
 numpy
 opencv-python-headless
+razorpay
