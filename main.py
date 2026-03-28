@@ -1,18 +1,18 @@
 import os
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn
-import io
 
 # Import our existing backend modules
 from parser import extract_text_from_pdf
 from analyzer import get_match_score, get_missing_skills, get_matched_skills
 from llm import get_improvement_suggestions, get_resume_score_breakdown
 from chatbot import get_chatbot_response
-from photo_analyzer import router as photo_router  # ← photo analyzer
+from photo_analyzer import router as photo_router
+from firebase_utils import verify_token, check_and_increment_analysis, check_and_increment_sage, check_and_increment_photo
 
 # ─────────────────────────────────────────────
 # APP SETUP
@@ -20,10 +20,9 @@ from photo_analyzer import router as photo_router  # ← photo analyzer
 app = FastAPI(
     title="Offerpath API",
     description="Backend API for Offerpath — AI Resume Analyzer",
-    version="1.0.0"
+    version="2.0.0"
 )
 
-# ← router registered AFTER app is created
 app.include_router(photo_router, prefix="/api")
 
 app.add_middleware(
@@ -42,7 +41,6 @@ app.add_middleware(
 # ─────────────────────────────────────────────
 # MODELS
 # ─────────────────────────────────────────────
-
 class ChatMessage(BaseModel):
     role: str
     content: str
@@ -67,12 +65,11 @@ class ChatResponse(BaseModel):
 # ─────────────────────────────────────────────
 # ROUTES
 # ─────────────────────────────────────────────
-
 @app.get("/")
 def root():
     return {
         "status": "Offerpath API is running",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "endpoints": ["/analyze", "/chat", "/health", "/api/analyze-photo"]
     }
 
@@ -81,13 +78,21 @@ def health():
     return {"status": "ok"}
 
 # ─────────────────────────────────────────────
-# /analyze
+# /analyze — with auth + plan limit
 # ─────────────────────────────────────────────
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_resume(
     resume: UploadFile = File(...),
-    job_description: str = Form(...)
+    job_description: str = Form(...),
+    authorization: Optional[str] = Header(None)
 ):
+    # 1. Verify Firebase token
+    uid = verify_token(authorization)
+
+    # 2. Check + increment weekly analysis limit
+    check_and_increment_analysis(uid)
+
+    # 3. Validate inputs
     if not resume.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
@@ -106,11 +111,11 @@ async def analyze_resume(
         if not resume_text or len(resume_text.strip()) < 100:
             raise HTTPException(status_code=400, detail="Could not extract text from the PDF. Make sure it's not a scanned image.")
 
-        match_score     = get_match_score(resume_text, job_description)
-        matched_skills  = get_matched_skills(resume_text, job_description)
-        missing_skills  = get_missing_skills(resume_text, job_description)
-        suggestions     = get_improvement_suggestions(resume_text, job_description, missing_skills)
-        breakdown       = get_resume_score_breakdown(resume_text)
+        match_score    = get_match_score(resume_text, job_description)
+        matched_skills = get_matched_skills(resume_text, job_description)
+        missing_skills = get_missing_skills(resume_text, job_description)
+        suggestions    = get_improvement_suggestions(resume_text, job_description, missing_skills)
+        breakdown      = get_resume_score_breakdown(resume_text)
 
         return AnalyzeResponse(
             match_score=match_score,
@@ -128,10 +133,20 @@ async def analyze_resume(
 
 
 # ─────────────────────────────────────────────
-# /chat
+# /chat — with auth + daily Sage limit
 # ─────────────────────────────────────────────
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(
+    request: ChatRequest,
+    authorization: Optional[str] = Header(None)
+):
+    # 1. Verify Firebase token
+    uid = verify_token(authorization)
+
+    # 2. Check + increment daily Sage limit
+    check_and_increment_sage(uid)
+
+    # 3. Validate inputs
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
