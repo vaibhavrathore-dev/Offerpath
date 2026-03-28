@@ -2,9 +2,11 @@ import os
 import json
 from io import BytesIO
 from PIL import Image
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Header
 from groq import Groq
 import google.generativeai as genai
+from typing import Optional
+from firebase_utils import verify_token, check_and_increment_photo
 
 # ─────────────────────────────────────────────
 # cv2 is optional — no prebuilt wheel for Python 3.14 yet
@@ -28,7 +30,7 @@ gemini_vision_model = genai.GenerativeModel("gemini-1.5-flash")
 # ─────────────────────────────────────────────
 def compute_sharpness(pil_image: Image.Image) -> int:
     if not CV2_AVAILABLE:
-        return 70  # neutral fallback when cv2 not installed
+        return 70
     img_cv = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     variance = cv2.Laplacian(gray, cv2.CV_64F).var()
@@ -39,7 +41,7 @@ def compute_sharpness(pil_image: Image.Image) -> int:
 # ─────────────────────────────────────────────
 def compute_lighting(pil_image: Image.Image) -> int:
     if not CV2_AVAILABLE:
-        return 70  # neutral fallback when cv2 not installed
+        return 70
     img_cv = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
     hsv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2HSV)
     brightness = hsv[:, :, 2].mean()
@@ -84,11 +86,20 @@ Be specific in tips. Address the actual problems you see in this specific photo.
         raise Exception(f"Gemini vision failed: {str(e)}")
 
 # ─────────────────────────────────────────────
-# MAIN ENDPOINT
+# MAIN ENDPOINT — with auth + weekly photo limit
 # ─────────────────────────────────────────────
 @router.post("/analyze-photo")
-async def analyze_photo(file: UploadFile = File(...)):
+async def analyze_photo(
+    file: UploadFile = File(...),
+    authorization: Optional[str] = Header(None)
+):
+    # 1. Verify Firebase token
+    uid = verify_token(authorization)
 
+    # 2. Check + increment weekly photo limit
+    check_and_increment_photo(uid)
+
+    # 3. Validate file
     if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
         raise HTTPException(status_code=400, detail="Only JPG, PNG, or WebP images are allowed.")
 
@@ -103,11 +114,9 @@ async def analyze_photo(file: UploadFile = File(...)):
     except Exception:
         raise HTTPException(status_code=400, detail="Could not read image. Please upload a valid photo.")
 
-    # OpenCV signals — use PIL image directly, cv2 conversion happens inside
     sharpness = compute_sharpness(pil_image)
     lighting  = compute_lighting(pil_image)
 
-    # Gemini semantic signals
     try:
         gemini_data = compute_gemini_signals(pil_image)
     except Exception as e:
