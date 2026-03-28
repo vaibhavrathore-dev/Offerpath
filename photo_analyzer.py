@@ -23,7 +23,7 @@ router = APIRouter()
 
 groq_client = Groq(api_key=os.environ["GROQ_API_KEY"])
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-gemini_vision_model = genai.GenerativeModel("gemini-1.5-flash")
+gemini_vision_model = genai.GenerativeModel("gemini-2.0-flash")
 
 # ─────────────────────────────────────────────
 # SIGNAL 1 — Sharpness (Laplacian variance)
