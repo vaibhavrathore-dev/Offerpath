@@ -8,6 +8,7 @@ load_dotenv()
 
 # ─────────────────────────────────────────────
 # CLIENT SETUP
+# First commit from Ubuntu 🚀
 # ─────────────────────────────────────────────
 groq_client = Groq(api_key=os.environ["GROQ_API_KEY"])
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
